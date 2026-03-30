@@ -1,11 +1,8 @@
 name: BCBS Prefix Scraper
 
 on:
-  # Quarterly schedule — 1st day of Jan, Apr, Jul, Oct at 6am UTC
   schedule:
     - cron: '0 6 1 1,4,7,10 *'
-
-  # Allow manual trigger from GitHub Actions tab
   workflow_dispatch:
     inputs:
       test_mode:
@@ -30,16 +27,18 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: scraper/package.json
 
       - name: Install dependencies
         working-directory: scraper
         run: npm install
 
-      - name: Install Puppeteer browser
-        working-directory: scraper
-        run: npx puppeteer browsers install chrome
+      - name: Find Chrome path
+        id: chrome
+        run: |
+          CHROME=$(which google-chrome-stable || which google-chrome || which chromium-browser || which chromium)
+          echo "path=$CHROME" >> $GITHUB_OUTPUT
+          echo "Chrome found at: $CHROME"
+          $CHROME --version
 
       - name: Run scraper (test mode)
         if: github.event.inputs.test_mode == 'true'
@@ -47,6 +46,7 @@ jobs:
         env:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          CHROME_PATH: ${{ steps.chrome.outputs.path }}
         run: node scrape.js --test
 
       - name: Run scraper (full mode)
@@ -55,6 +55,7 @@ jobs:
         env:
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          CHROME_PATH: ${{ steps.chrome.outputs.path }}
         run: node scrape.js
 
       - name: Upload logs on failure
