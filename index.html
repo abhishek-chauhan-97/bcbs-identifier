@@ -4,11 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BCBS Home State Identifier</title>
+<link rel="icon" type="image/png" href="https://cdn.brandfetch.io/idHqvzcwfQ/w/800/h/409/theme/dark/symbol.png?c=1bxid64Mup7aczewSAYMX&t=1668078295894">
 <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 <div class="hdr">
+  <img src="https://cdn.brandfetch.io/idHqvzcwfQ/w/800/h/409/theme/dark/symbol.png?c=1bxid64Mup7aczewSAYMX&t=1668078295894" alt="BCBS" style="height:48px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;filter:brightness(0) invert(1);opacity:.9">
   <h1>BCBS Home State Identifier</h1>
   <p>Identify the Home State Payer and Availity REST API transaction support for any BCBS member</p>
 </div>
@@ -49,7 +51,6 @@
           <select id="df" onchange="fd()"><option value="">All States</option></select>
         </div>
       </div>
-      <!-- Transaction filters -->
       <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
         <span style="font-size:12px;font-weight:700;color:var(--s);text-transform:uppercase;letter-spacing:.5px">Filter by:</span>
         <label class="fchk"><input type="checkbox" id="f270" onchange="fd()"> 270 Elig</label>
@@ -85,7 +86,7 @@
 
 <button id="gtt" onclick="window.scrollTo({top:0,behavior:'smooth'})">&uarr;</button>
 
-<!-- Prefix modal (legacy) -->
+<!-- Prefix modal -->
 <div class="modal-bg" id="pfxModal" onclick="if(event.target===this)closePfx()">
   <div class="modal">
     <div class="modal-hdr"><h3 id="pfxModalTitle">Prefixes</h3><button class="modal-close" onclick="closePfx()">&times;</button></div>
@@ -117,7 +118,6 @@
         <div class="lb">Describe the issue</div>
         <textarea id="fbDesc" style="width:100%;padding:10px;border:1px solid var(--bd);border-radius:6px;font-family:inherit;font-size:14px;resize:vertical;min-height:80px;box-sizing:border-box" placeholder="e.g. Wrong plan, incorrect Availity ID, missing 278 support..."></textarea>
       </div>
-      <!-- Footer: message left, button right -->
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:4px">
         <div id="fbResult" style="flex:1;min-height:20px"></div>
         <button class="btn" id="fbSubmitBtn" onclick="submitFeedback()" style="white-space:nowrap;flex-shrink:0">Send Feedback</button>
