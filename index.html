@@ -9,78 +9,121 @@
 </head>
 <body>
 <div class="hdr">
-<h1>BCBS Home State Identifier</h1>
-<p>Identify the Home State Payer and Availity REST API transaction support for any BCBS member</p>
+  <h1>BCBS Home State Identifier</h1>
+  <p>Identify the Home State Payer and Availity REST API transaction support for any BCBS member</p>
 </div>
 <div class="sticky"><div class="tw"><div class="tabs">
-<button class="tab on" onclick="sw('sub')" id="t-sub">Subscriber Lookup</button>
-<button class="tab" onclick="sw('dir')" id="t-dir">Plan Directory</button>
-<button class="tab" onclick="sw('pfx')" id="t-pfx">Prefix Search</button>
+  <button class="tab on" onclick="sw('sub')" id="t-sub">Subscriber Lookup</button>
+  <button class="tab" onclick="sw('dir')" id="t-dir">Plan Directory</button>
+  <button class="tab" onclick="sw('pfx')" id="t-pfx">Prefix Search</button>
 </div></div></div>
+
 <div class="ctr">
-<div id="p-sub">
-<div class="cd"><div class="lb">Subscriber / Member ID</div>
-<div class="fl row"><input type="text" id="sId" class="f1" style="font-family:monospace;font-size:20px;letter-spacing:2px" placeholder="WSJ123456789 or A2P789012" oninput="vi()" onkeydown="if(event.key==='Enter')lu()"><button class="btn" onclick="lu()">Identify</button></div>
-<div id="vm"></div></div>
-<div id="sr"></div>
+
+  <!-- Subscriber Lookup -->
+  <div id="p-sub">
+    <div class="cd">
+      <div class="lb">Subscriber / Member ID</div>
+      <div class="fl row">
+        <input type="text" id="sId" class="f1" style="font-family:monospace;font-size:20px;letter-spacing:2px" placeholder="WSJ123456789 or A2P789012" oninput="vi()" onkeydown="if(event.key==='Enter')lu()">
+        <button class="btn" onclick="lu()">Search</button>
+      </div>
+      <div id="vm"></div>
+    </div>
+    <div id="sr"></div>
+  </div>
+
+  <!-- Plan Directory -->
+  <div id="p-dir" class="hd">
+    <div class="cd">
+      <div class="fl row" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
+        <div class="f1">
+          <div class="lb">Search Plans</div>
+          <div class="fl row" style="gap:8px">
+            <input type="text" id="ds" class="f1" placeholder="Anthem, Florida Blue..." onkeydown="if(event.key==='Enter')fd()">
+            <button class="btn" onclick="fd()" style="white-space:nowrap">Search</button>
+          </div>
+        </div>
+        <div style="min-width:120px">
+          <div class="lb">State</div>
+          <select id="df" onchange="fd()"><option value="">All States</option></select>
+        </div>
+      </div>
+      <!-- Transaction filters -->
+      <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+        <span style="font-size:12px;font-weight:700;color:var(--s);text-transform:uppercase;letter-spacing:.5px">Filter by:</span>
+        <label class="fchk"><input type="checkbox" id="f270" onchange="fd()"> 270 Elig</label>
+        <label class="fchk"><input type="checkbox" id="f278i" onchange="fd()"> 278 IP</label>
+        <label class="fchk"><input type="checkbox" id="f278o" onchange="fd()"> 278 OP</label>
+        <label class="fchk"><input type="checkbox" id="fRef" onchange="fd()"> Ref</label>
+        <label class="fchk"><input type="checkbox" id="f275" onchange="fd()"> 275 Attach</label>
+      </div>
+      <div id="dd" style="font-size:13px;color:var(--s);margin-top:8px"></div>
+    </div>
+    <div id="dr"></div>
+  </div>
+
+  <!-- Prefix Search -->
+  <div id="p-pfx" class="hd">
+    <div class="cd">
+      <div class="lb">Enter prefix (A-Z and 2-9) — results appear at 3 characters</div>
+      <input type="text" id="pi" style="font-family:monospace;font-size:20px;letter-spacing:2px" placeholder="WSJ" maxlength="3" oninput="sp()">
+      <div id="pst" style="font-size:13px;color:var(--s);margin-top:6px"></div>
+    </div>
+    <div id="px"></div>
+  </div>
+
+  <div class="ft">
+    This tool is intended for informational purposes only and does not guarantee real-time accuracy of payer configurations.
+    Availity transaction support, payer IDs, and BCBS prefix assignments are subject to change without notice.
+    Always confirm PA/Referral submission requirements directly with the payer or via Availity before submitting transactions.
+    This tool does not process, store, or transmit any Protected Health Information (PHI).
+    This tool is not affiliated with the Blue Cross Blue Shield Association or Availity.
+    <br><br>Data updated: March 2026 &bull; &copy; 2026
+  </div>
 </div>
-<div id="p-dir" class="hd">
-<div class="cd"><div class="fl row"><div class="f1"><div class="lb">Search Plans</div><input type="text" id="ds" placeholder="Anthem, Florida Blue..." oninput="fd()"></div>
-<div style="min-width:120px"><div class="lb">State</div><select id="df" onchange="fd()"><option value="">All</option></select></div></div>
-<div id="dd" style="font-size:13px;color:var(--s);margin-top:6px"></div></div>
-<div id="dr"></div>
-</div>
-<div id="p-pfx" class="hd">
-<div class="cd"><div class="lb">Prefix (letters A-Z and digits 2-9)</div>
-<input type="text" id="pi" style="font-family:monospace;font-size:20px;letter-spacing:2px" placeholder="WSJ, A2P, R55" maxlength="3" oninput="sp()">
-<div id="pst" style="font-size:13px;color:var(--s);margin-top:6px"></div></div>
-<div id="px"></div>
-</div>
-<div class="ft">
-This tool is intended for informational purposes only and does not guarantee real-time accuracy of payer configurations.
-Availity transaction support, payer IDs, and BCBS prefix assignments are subject to change without notice.
-Always confirm PA/Referral submission requirements directly with the payer or via Availity before submitting transactions.
-This tool does not process, store, or transmit any Protected Health Information (PHI).
-This tool is not affiliated with the Blue Cross Blue Shield Association or Availity.
-<br><br>
-Data updated: March 2026 &bull; &copy; 2026
-</div>
-</div>
+
 <button id="gtt" onclick="window.scrollTo({top:0,behavior:'smooth'})">&uarr;</button>
 
-<!-- Prefix modal (kept for compatibility) -->
+<!-- Prefix modal (legacy) -->
 <div class="modal-bg" id="pfxModal" onclick="if(event.target===this)closePfx()">
-<div class="modal">
-<div class="modal-hdr"><h3 id="pfxModalTitle">Prefixes</h3><button class="modal-close" onclick="closePfx()">&times;</button></div>
-<div class="modal-body" id="pfxModalBody"></div>
-</div>
+  <div class="modal">
+    <div class="modal-hdr"><h3 id="pfxModalTitle">Prefixes</h3><button class="modal-close" onclick="closePfx()">&times;</button></div>
+    <div class="modal-body" id="pfxModalBody"></div>
+  </div>
 </div>
 
 <!-- Feedback modal -->
 <div class="modal-bg" id="feedbackModal" onclick="if(event.target===this)closeFeedback()">
-<div class="modal">
-<div class="modal-hdr"><h3>Flag Incorrect Data</h3><button class="modal-close" onclick="closeFeedback()">&times;</button></div>
-<div class="modal-body">
-<div style="margin-bottom:12px">
-<div class="lb">Prefix</div>
-<input type="text" id="fbPrefix" readonly style="background:#f4f5f7;font-family:monospace;font-weight:700">
-</div>
-<div style="margin-bottom:12px">
-<div class="lb">Currently mapped to</div>
-<input type="text" id="fbPlan" readonly style="background:#f4f5f7">
-</div>
-<div style="margin-bottom:12px">
-<div class="lb">Correct plan name (if known)</div>
-<input type="text" id="fbCorrect" placeholder="e.g. Blue Cross of Idaho">
-</div>
-<div style="margin-bottom:16px">
-<div class="lb">Describe the issue</div>
-<textarea id="fbDesc" style="width:100%;padding:10px;border:1px solid var(--bd);border-radius:6px;font-family:inherit;font-size:14px;resize:vertical;min-height:80px" placeholder="e.g. Wrong plan, incorrect Availity ID, missing 278 support..."></textarea>
-</div>
-<div id="fbResult"></div>
-<button class="btn" id="fbSubmitBtn" onclick="submitFeedback()" style="width:100%">Submit Feedback</button>
-</div>
-</div>
+  <div class="modal">
+    <div class="modal-hdr">
+      <h3>Flag Incorrect Data</h3>
+      <button class="modal-close" onclick="closeFeedback()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:12px">
+        <div class="lb">Prefix</div>
+        <input type="text" id="fbPrefix" readonly style="background:#f4f5f7;font-family:monospace;font-weight:700">
+      </div>
+      <div style="margin-bottom:12px">
+        <div class="lb">Currently mapped to</div>
+        <input type="text" id="fbPlan" readonly style="background:#f4f5f7">
+      </div>
+      <div style="margin-bottom:12px">
+        <div class="lb">Correct plan name (if known)</div>
+        <input type="text" id="fbCorrect" placeholder="e.g. Blue Cross of Idaho">
+      </div>
+      <div style="margin-bottom:16px">
+        <div class="lb">Describe the issue</div>
+        <textarea id="fbDesc" style="width:100%;padding:10px;border:1px solid var(--bd);border-radius:6px;font-family:inherit;font-size:14px;resize:vertical;min-height:80px;box-sizing:border-box" placeholder="e.g. Wrong plan, incorrect Availity ID, missing 278 support..."></textarea>
+      </div>
+      <!-- Footer: message left, button right -->
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:4px">
+        <div id="fbResult" style="flex:1;min-height:20px"></div>
+        <button class="btn" id="fbSubmitBtn" onclick="submitFeedback()" style="white-space:nowrap;flex-shrink:0">Send Feedback</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script src="js/app.js"></script>
