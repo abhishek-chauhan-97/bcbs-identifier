@@ -1,39 +1,34 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // BCBS Prefix Scraper — Quarterly automated sync
-// Runs via GitHub Actions, updates Cloudflare D1, sends email via Resend
+// Uses puppeteer-core + system Chrome (no bundled browser download)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
 const fetch = require('node-fetch');
 
-// ─── CONFIG ────────────────────────────────────────────────────────────────
 const CONFIG = {
-  // Scraper settings
   delayMs: 200,
   batchSize: 50,
   testMode: process.argv.includes('--test'),
   testPrefixes: ['WSJ', 'ABC', 'AAA', 'ZZZ', 'XQA', 'RAA', 'FEP', 'BCA', 'A2A', 'YEP',
                  'WSA', 'WSB', 'WSC', 'WSD', 'WSE', 'WSF', 'WSG', 'WSH', 'WSI', 'WSK'],
-
-  // Cloudflare D1
   cfAccountId: '90652237702a9ed8d5bd48ad66b466a0',
   cfDatabaseId: '704682fb-fcfd-4c41-b5aa-4da131295a6b',
   cfApiToken: process.env.CF_API_TOKEN,
-
-  // Resend email
   resendApiKey: process.env.RESEND_API_KEY,
   alertEmail: 'abhishek.chauhan.work97@gmail.com',
   fromEmail: 'onboarding@resend.dev',
-
-  // BCBS API
-  bcbsUrl: 'https://www.bcbs.com/planfinder/prefix'
+  bcbsUrl: 'https://www.bcbs.com/planfinder/prefix',
+  // System Chrome path passed via env, with fallbacks
+  chromePath: process.env.CHROME_PATH ||
+    '/usr/bin/google-chrome-stable' ||
+    '/usr/bin/google-chrome' ||
+    '/usr/bin/chromium-browser'
 };
 
-// ─── UTILITIES ─────────────────────────────────────────────────────────────
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 function log(msg) { console.log(`[${new Date().toISOString()}] ${msg}`); }
 
-// Generate all 3-letter alpha prefixes AAA–ZZZ
 function generateAllPrefixes() {
   const prefixes = [];
   for (let i = 65; i <= 90; i++)
@@ -43,7 +38,6 @@ function generateAllPrefixes() {
   return prefixes;
 }
 
-// ─── D1 HELPERS ────────────────────────────────────────────────────────────
 async function d1Query(sql, params = []) {
   const url = `https://api.cloudflare.com/client/v4/accounts/${CONFIG.cfAccountId}/d1/database/${CONFIG.cfDatabaseId}/query`;
   const res = await fetch(url, {
@@ -66,21 +60,24 @@ async function getAllPrefixesFromD1() {
   return map;
 }
 
-async function upsertPrefix(prefix, planName, state, count, url, pids, h270, hPaIn, hPaOut, hRef, h275) {
+async function upsertPrefix(prefix, planName, url) {
   await d1Query(
     `INSERT OR REPLACE INTO prefixes 
-     (alpha_prefix, plan_name, state, prefix_count, website_url, availity_payer_ids, 
+     (alpha_prefix, plan_name, state, prefix_count, website_url, availity_payer_ids,
       has_270, has_pa_in, has_pa_out, has_ref, has_275)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [prefix, planName, state, count, url, pids, h270, hPaIn, hPaOut, hRef, h275]
+     VALUES (?, ?, '', 0, ?, '', 0, 0, 0, 0, 0)`,
+    [prefix, planName, url]
   );
+}
+
+async function updatePlanName(prefix, planName) {
+  await d1Query('UPDATE prefixes SET plan_name = ? WHERE alpha_prefix = ?', [planName, prefix]);
 }
 
 async function deletePrefix(prefix) {
   await d1Query('DELETE FROM prefixes WHERE alpha_prefix = ?', [prefix]);
 }
 
-// ─── BCBS SCRAPER (runs inside Puppeteer page context) ────────────────────
 async function scrapePrefixes(page, prefixes) {
   const results = {};
   let done = 0;
@@ -88,29 +85,30 @@ async function scrapePrefixes(page, prefixes) {
   for (const prefix of prefixes) {
     try {
       const data = await page.evaluate(async (pfx, url) => {
-        const r = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({ prefix: pfx })
-        });
-        if (!r.ok) return null;
-        return await r.json();
+        try {
+          const r = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ prefix: pfx })
+          });
+          if (!r.ok) return null;
+          const json = await r.json();
+          return Array.isArray(json) && json.length > 0 ? json[0] : null;
+        } catch(e) { return null; }
       }, prefix, CONFIG.bcbsUrl);
 
-      if (data && Array.isArray(data) && data.length > 0) {
-        results[prefix] = data[0]; // take first plan
-        log(`  ✅ ${prefix} → ${data[0].name}`);
-      } else {
-        results[prefix] = null; // unassigned
-      }
+      results[prefix] = data || null;
+      if (data) log(`  ✅ ${prefix} → ${data.name}`);
+
     } catch (e) {
-      log(`  ❌ ${prefix} → Error: ${e.message}`);
+      log(`  ❌ ${prefix} → ${e.message}`);
       results[prefix] = null;
     }
 
     done++;
     if (done % CONFIG.batchSize === 0) {
-      log(`  Progress: ${done}/${prefixes.length} (${Math.round(done/prefixes.length*100)}%)`);
+      const found = Object.values(results).filter(Boolean).length;
+      log(`  Progress: ${done}/${prefixes.length} (${Math.round(done/prefixes.length*100)}%) | Found: ${found}`);
     }
     await delay(CONFIG.delayMs);
   }
@@ -118,61 +116,37 @@ async function scrapePrefixes(page, prefixes) {
   return results;
 }
 
-// ─── EMAIL ─────────────────────────────────────────────────────────────────
-async function sendEmail(subject, htmlBody) {
+async function sendEmail(subject, html) {
   if (!CONFIG.resendApiKey) { log('No RESEND_API_KEY — skipping email'); return; }
-
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${CONFIG.resendApiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      from: CONFIG.fromEmail,
-      to: CONFIG.alertEmail,
-      subject,
-      html: htmlBody
-    })
+    headers: { 'Authorization': `Bearer ${CONFIG.resendApiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: CONFIG.fromEmail, to: CONFIG.alertEmail, subject, html })
   });
-
   const data = await res.json();
-  if (res.ok) {
-    log(`Email sent: ${data.id}`);
-  } else {
-    log(`Email failed: ${JSON.stringify(data)}`);
-  }
+  log(res.ok ? `Email sent: ${data.id}` : `Email failed: ${JSON.stringify(data)}`);
 }
 
-function buildEmailHtml(added, changed, removed, totalPrefixes, runDate) {
-  const hasChanges = added.length > 0 || changed.length > 0 || removed.length > 0;
-
-  let html = `
-  <div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#111">
+function buildEmail(added, changed, removed, total, runDate) {
+  const hasChanges = added.length || changed.length || removed.length;
+  let html = `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;color:#111">
     <div style="background:linear-gradient(135deg,#1e3a8a,#2563eb);padding:24px;border-radius:8px 8px 0 0">
       <h1 style="color:#fff;margin:0;font-size:20px">BCBS Prefix Database Update</h1>
-      <p style="color:rgba(255,255,255,.8);margin:6px 0 0;font-size:13px">
-        Quarterly scrape completed — ${runDate}
-      </p>
+      <p style="color:rgba(255,255,255,.8);margin:6px 0 0;font-size:13px">Quarterly scrape — ${runDate}</p>
     </div>
     <div style="background:#f8fafc;padding:20px;border:1px solid #e5e7eb;border-top:none">
-      <p style="margin:0 0 16px;font-size:14px;color:#374151">
-        Total prefixes in database: <strong>${totalPrefixes.toLocaleString()}</strong>
-      </p>`;
+      <p style="margin:0 0 16px;font-size:14px">Total prefixes: <strong>${total.toLocaleString()}</strong></p>`;
 
   if (!hasChanges) {
-    html += `<div style="background:#dcfce7;border:1px solid #bbf7d0;border-radius:6px;padding:14px;font-size:14px;color:#15803d">
-      ✅ No changes detected. Database is up to date.
-    </div>`;
+    html += `<div style="background:#dcfce7;border:1px solid #bbf7d0;border-radius:6px;padding:14px;color:#15803d">✅ No changes detected.</div>`;
   } else {
-    html += `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:14px;font-size:14px;color:#92400e;margin-bottom:16px">
-      ⚠️ ${added.length + changed.length + removed.length} change(s) detected and applied automatically.
-    </div>`;
+    html += `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:14px;color:#92400e;margin-bottom:16px">
+      ⚠️ ${added.length + changed.length + removed.length} change(s) applied automatically.</div>`;
   }
 
-  if (added.length > 0) {
-    html += `<h3 style="color:#15803d;font-size:14px;margin:16px 0 8px">✅ ${added.length} New Prefix${added.length > 1 ? 'es' : ''} Added</h3>
-    <table style="width:100%;border-collapse:collapse;font-size:13px">
+  if (added.length) {
+    html += `<h3 style="color:#15803d;font-size:14px;margin:16px 0 8px">✅ ${added.length} New Prefix${added.length>1?'es':''}</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
       <tr style="background:#f1f5f9"><th style="padding:6px 10px;text-align:left">Prefix</th><th style="padding:6px 10px;text-align:left">Plan</th></tr>`;
     added.forEach(({prefix, plan}) => {
       html += `<tr><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-family:monospace;font-weight:700">${prefix}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9">${plan}</td></tr>`;
@@ -180,133 +154,105 @@ function buildEmailHtml(added, changed, removed, totalPrefixes, runDate) {
     html += `</table>`;
   }
 
-  if (changed.length > 0) {
-    html += `<h3 style="color:#d97706;font-size:14px;margin:16px 0 8px">⚠️ ${changed.length} Prefix Mapping${changed.length > 1 ? 's' : ''} Changed</h3>
-    <table style="width:100%;border-collapse:collapse;font-size:13px">
+  if (changed.length) {
+    html += `<h3 style="color:#d97706;font-size:14px;margin:16px 0 8px">⚠️ ${changed.length} Changed</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
       <tr style="background:#f1f5f9"><th style="padding:6px 10px;text-align:left">Prefix</th><th style="padding:6px 10px;text-align:left">Was</th><th style="padding:6px 10px;text-align:left">Now</th></tr>`;
     changed.forEach(({prefix, oldPlan, newPlan}) => {
-      html += `<tr><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-family:monospace;font-weight:700">${prefix}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;color:#dc2626">${oldPlan}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;color:#15803d">${newPlan}</td></tr>`;
+      html += `<tr><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-family:monospace;font-weight:700">${prefix}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;color:#dc2626">${oldPlan}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;color:#15803d">${newPlan}</td></tr>`;
     });
     html += `</table>`;
   }
 
-  if (removed.length > 0) {
-    html += `<h3 style="color:#dc2626;font-size:14px;margin:16px 0 8px">❌ ${removed.length} Prefix${removed.length > 1 ? 'es' : ''} Removed</h3>
-    <table style="width:100%;border-collapse:collapse;font-size:13px">
-      <tr style="background:#f1f5f9"><th style="padding:6px 10px;text-align:left">Prefix</th><th style="padding:6px 10px;text-align:left">Was Mapped To</th></tr>`;
+  if (removed.length) {
+    html += `<h3 style="color:#dc2626;font-size:14px;margin:16px 0 8px">❌ ${removed.length} Removed</h3>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <tr style="background:#f1f5f9"><th style="padding:6px 10px;text-align:left">Prefix</th><th style="padding:6px 10px;text-align:left">Was</th></tr>`;
     removed.forEach(({prefix, oldPlan}) => {
-      html += `<tr><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-family:monospace;font-weight:700">${prefix}</td><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;color:#dc2626">${oldPlan}</td></tr>`;
+      html += `<tr><td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;font-family:monospace;font-weight:700">${prefix}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #f1f5f9;color:#dc2626">${oldPlan}</td></tr>`;
     });
     html += `</table>`;
   }
 
-  html += `
-    </div>
+  html += `</div>
     <div style="padding:14px 20px;background:#f1f5f9;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;font-size:12px;color:#6b7280">
-      This is an automated alert from the BCBS Home State Identifier scraper.<br>
-      Database changes have been applied automatically to Cloudflare D1.<br>
-      View the tool: <a href="https://arcane-owl-97.github.io/bcbs-identifier/" style="color:#2563eb">arcane-owl-97.github.io/bcbs-identifier</a>
-    </div>
-  </div>`;
-
+      Automated alert from BCBS Home State Identifier scraper. Changes applied to Cloudflare D1.<br>
+      <a href="https://arcane-owl-97.github.io/bcbs-identifier/" style="color:#2563eb">View tool ↗</a>
+    </div></div>`;
   return html;
 }
 
-// ─── MAIN ──────────────────────────────────────────────────────────────────
 async function main() {
-  const runDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-  log(`BCBS Prefix Scraper starting — ${runDate}`);
-  log(`Mode: ${CONFIG.testMode ? 'TEST' : 'FULL'}`);
+  const runDate = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
+  log(`BCBS Prefix Scraper — ${runDate} — ${CONFIG.testMode ? 'TEST' : 'FULL'} mode`);
 
-  // Validate env vars
   if (!CONFIG.cfApiToken) throw new Error('CF_API_TOKEN not set');
-  if (!CONFIG.resendApiKey) log('Warning: RESEND_API_KEY not set — email will be skipped');
 
-  // Step 1 — Get current D1 state
-  log('Loading current prefixes from D1...');
+  log('Loading current D1 state...');
   const currentD1 = await getAllPrefixesFromD1();
   log(`D1 has ${Object.keys(currentD1).length} prefixes`);
 
-  // Step 2 — Launch browser and scrape BCBS
-  log('Launching browser...');
+  log(`Launching Chrome from: ${CONFIG.chromePath}`);
   const browser = await puppeteer.launch({
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    executablePath: CONFIG.chromePath,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
   });
+
   const page = await browser.newPage();
-  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+  await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36');
 
   log('Navigating to BCBS planfinder...');
   await page.goto('https://www.bcbs.com/planfinder/prefix', { waitUntil: 'networkidle2', timeout: 30000 });
+  log('Page loaded');
 
-  const prefixesToScrape = CONFIG.testMode ? CONFIG.testPrefixes : generateAllPrefixes();
-  log(`Scraping ${prefixesToScrape.length} prefixes...`);
-
-  const scraped = await scrapePrefixes(page, prefixesToScrape);
+  const prefixes = CONFIG.testMode ? CONFIG.testPrefixes : generateAllPrefixes();
+  log(`Scraping ${prefixes.length} prefixes...`);
+  const scraped = await scrapePrefixes(page, prefixes);
   await browser.close();
   log('Browser closed');
 
-  // Step 3 — Diff: find added, changed, removed
-  const added   = [];
-  const changed = [];
-  const removed = [];
+  const added = [], changed = [], removed = [];
 
-  // Check scraped results against D1
   for (const [prefix, planData] of Object.entries(scraped)) {
-    if (!planData) continue; // unassigned prefix — skip
-
-    const newPlanName = planData.name;
-    const existingPlan = currentD1[prefix];
-
-    if (!existingPlan) {
-      // New prefix not in D1
-      added.push({ prefix, plan: newPlanName });
+    if (!planData) continue;
+    const newName = planData.name;
+    const existing = currentD1[prefix];
+    if (!existing) {
+      added.push({ prefix, plan: newName });
       const url = planData.urls?.general || planData.urls?.individualsFamilies || '';
-      await upsertPrefix(prefix, newPlanName, '', 0, url, '', 0, 0, 0, 0, 0);
-      log(`  Added: ${prefix} → ${newPlanName}`);
-    } else if (existingPlan !== newPlanName) {
-      // Plan mapping changed
-      changed.push({ prefix, oldPlan: existingPlan, newPlan: newPlanName });
-      await d1Query('UPDATE prefixes SET plan_name = ? WHERE alpha_prefix = ?', [newPlanName, prefix]);
-      log(`  Changed: ${prefix} — ${existingPlan} → ${newPlanName}`);
+      await upsertPrefix(prefix, newName, url);
+      log(`  Added: ${prefix} → ${newName}`);
+    } else if (existing !== newName) {
+      changed.push({ prefix, oldPlan: existing, newPlan: newName });
+      await updatePlanName(prefix, newName);
+      log(`  Changed: ${prefix} — ${existing} → ${newName}`);
     }
-    // else: unchanged — no action needed
   }
 
-  // Check for removed prefixes (only relevant in full mode)
   if (!CONFIG.testMode) {
     for (const [prefix, existingPlan] of Object.entries(currentD1)) {
-      const stillExists = scraped[prefix] !== undefined && scraped[prefix] !== null;
-      if (!stillExists && scraped[prefix] === null) {
-        // Was in D1 but BCBS returns empty — prefix removed
+      if (scraped[prefix] === null) {
         removed.push({ prefix, oldPlan: existingPlan });
         await deletePrefix(prefix);
-        log(`  Removed: ${prefix} (was ${existingPlan})`);
+        log(`  Removed: ${prefix}`);
       }
     }
   }
 
-  // Step 4 — Summary
-  const totalPrefixes = Object.keys(currentD1).length + added.length - removed.length;
-  log(`\nScrape complete:`);
-  log(`  Added:   ${added.length}`);
-  log(`  Changed: ${changed.length}`);
-  log(`  Removed: ${removed.length}`);
-  log(`  Total prefixes: ${totalPrefixes}`);
+  const total = Object.keys(currentD1).length + added.length - removed.length;
+  log(`Done — Added: ${added.length} | Changed: ${changed.length} | Removed: ${removed.length} | Total: ${total}`);
 
-  // Step 5 — Send email
-  const hasChanges = added.length > 0 || changed.length > 0 || removed.length > 0;
+  const hasChanges = added.length || changed.length || removed.length;
   const subject = hasChanges
     ? `⚠️ BCBS Prefix Update — ${added.length} added, ${changed.length} changed, ${removed.length} removed`
-    : `✅ BCBS Prefix Check — No changes (${runDate})`;
+    : `✅ BCBS Prefix Check Complete — No changes (${runDate})`;
 
-  const html = buildEmailHtml(added, changed, removed, totalPrefixes, runDate);
-  await sendEmail(subject, html);
-
-  log('Done.');
+  await sendEmail(subject, buildEmail(added, changed, removed, total, runDate));
+  log('Complete.');
   process.exit(0);
 }
 
-main().catch(err => {
-  console.error('Fatal error:', err);
-  process.exit(1);
-});
+main().catch(err => { console.error('Fatal:', err); process.exit(1); });
