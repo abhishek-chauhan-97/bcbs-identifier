@@ -75,3 +75,9 @@ input[type=text]:focus,select:focus,textarea:focus{border-color:var(--p)}
 #gtt{display:none;position:fixed;bottom:24px;right:24px;width:40px;height:40px;border-radius:50%;background:var(--p);color:#fff;border:none;font-size:18px;cursor:pointer;box-shadow:0 4px 12px rgba(37,99,235,.4);align-items:center;justify-content:center;z-index:500}
 #gtt:hover{background:var(--pd)}
 @media(max-width:600px){.fl.row{flex-direction:column}.btn{width:100%}.avtbl{font-size:11px}.avtbl th,.avtbl td{padding:6px 8px}.ptbl{font-size:11px}}
+.pfx-group{margin-bottom:14px}
+.pfx-letter{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;color:var(--s);margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid var(--bd)}
+.pfx-count{font-weight:600;color:var(--p)}
+.pfx-grid{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.pfx-tag{background:#f1f5f9;border:1px solid var(--bd);border-radius:4px;padding:3px 8px;font-family:monospace;font-size:13px;font-weight:700;color:#1e3a8a;letter-spacing:1px}
+.pfx-tag:hover{background:#eff6ff;border-color:var(--p)}
