@@ -1,5 +1,5 @@
 // BCBS Home State Identifier — Application Logic
-// v2.0 — API-backed, data protected
+// v2.1 — API-backed
 // API: https://project-1.arcaneowl.workers.dev
 
 const API = 'https://project-1.arcaneowl.workers.dev';
@@ -19,6 +19,18 @@ function sw(t) {
 function bd(v) { return v ? '<span class="ok">Available</span>' : '<span class="no">Not Available</span>'; }
 function bds(v) { return v ? '<span class="ok">✓</span>' : '<span class="no">✗</span>'; }
 
+// Badge order: 270 → 278 IP → 278 OP → Ref → 275
+function txBadges(t, size) {
+  var s = size === 'sm' ? '' : '';
+  var h = '';
+  h += (t.eligibility_270 || t.has_270    ? '<span class="ok">270</span>'    : '<span class="no">270</span>');
+  h += (t.pa_inpatient_278 || t.has_pa_in ? '<span class="ok">278 IP</span>' : '<span class="no">278 IP</span>');
+  h += (t.pa_outpatient_278||t.has_pa_out ? '<span class="ok">278 OP</span>' : '<span class="no">278 OP</span>');
+  h += (t.referral_278 || t.has_ref       ? '<span class="ok">Ref</span>'    : '<span class="no">Ref</span>');
+  h += (t.attachments_275 || t.has_275    ? '<span class="at">275</span>'    : '<span class="no">275</span>');
+  return h;
+}
+
 var VALID_PFX = /^[A-Z2-9]{3}$/;
 var HAS_INVALID = /[^A-Za-z2-9]/;
 var HAS_01 = /[01]/;
@@ -32,7 +44,7 @@ function vi() {
   if (HAS_INVALID.test(pfx)) { el.innerHTML = '<div class="vm vm-e">✗ BCBS prefixes contain only letters (A-Z) and digits (2-9).</div>'; return; }
   if (HAS_01.test(pfx)) { el.innerHTML = '<div class="vm vm-e">✗ BCBS prefixes do not use digits 0 or 1.</div>'; return; }
   if (!VALID_PFX.test(pfx)) { el.innerHTML = '<div class="vm vm-e">✗ Not a valid BCBS prefix format.</div>'; return; }
-  el.innerHTML = '<div class="vm vm-w">Searching...</div>';
+  el.innerHTML = '';
 }
 
 function lu() {
@@ -49,9 +61,7 @@ function lu() {
   fetch(API + '/lookup?prefix=' + pfx)
     .then(function (r) { return r.json(); })
     .then(function (data) {
-      if (data.error) {
-        el.innerHTML = '<div class="al al-e">✗ ' + data.error + '</div>'; return;
-      }
+      if (data.error) { el.innerHTML = '<div class="al al-e">✗ ' + data.error + '</div>'; return; }
       var t = data.transactions;
       var h = '<div class="rc">';
       h += '<div class="fl row" style="gap:12px;margin-bottom:14px">';
@@ -61,21 +71,14 @@ function lu() {
       h += '<div style="font-size:13px;color:var(--s);margin-top:2px">Home State: <strong>' + data.state + '</strong>';
       h += ' • ' + data.prefix_count + ' prefixes';
       h += ' • <a href="' + data.website_url + '" target="_blank">Website ↗</a></div></div></div>';
-      h += '<div class="fl row" style="gap:5px;margin-bottom:12px">';
-      h += (t.eligibility_270 ? '<span class="ok">270 Elig</span>' : '<span class="no">270 Elig</span>');
-      h += (t.pa_inpatient_278 ? '<span class="ok">278 PA</span>' : '<span class="no">278 PA</span>');
-      h += (t.referral_278 ? '<span class="ok">278 Ref</span>' : '<span class="no">278 Ref</span>');
-      h += (t.attachments_275 ? '<span class="at">275 Attach</span>' : '<span class="no">275 Attach</span>');
-      h += '</div>';
+      h += '<div class="fl row" style="gap:5px;margin-bottom:12px">' + txBadges(t) + '</div>';
       h += avTableFromAPI(data);
       h += '<div class="al al-i mt">All PA and Referral submissions for this member must be directed to <strong>' + data.plan_name + '</strong> (' + data.state + ').</div>';
       h += '<div style="margin-top:10px;text-align:right"><button class="btn" style="background:var(--s);font-size:12px;padding:6px 12px" onclick="openFeedback(\'' + data.prefix + '\',\'' + data.plan_name.replace(/'/g, "\\'") + '\')">⚑ Flag incorrect data</button></div>';
       h += '</div>';
       el.innerHTML = h;
     })
-    .catch(function () {
-      el.innerHTML = '<div class="al al-e">Network error. Please try again.</div>';
-    });
+    .catch(function () { el.innerHTML = '<div class="al al-e">Network error. Please try again.</div>'; });
 }
 
 function avTableFromAPI(data) {
@@ -87,7 +90,7 @@ function avTableFromAPI(data) {
   var h = '<table class="avtbl"><tr><th>Availity ID</th><th>270 Elig</th><th>278 Inpatient</th><th>278 Outpatient</th><th>278 Referral</th><th>275 Attach</th></tr>';
   var pidList = pids ? pids.split(',') : ['—'];
   pidList.forEach(function (pid) {
-    h += '<tr><td class="mono" style="font-size:14px">' + pid + '</td>';
+    h += '<tr><td class="mono" style="font-size:14px">' + pid.trim() + '</td>';
     h += '<td>' + bd(t.eligibility_270) + '</td>';
     h += '<td>' + bd(t.pa_inpatient_278) + '</td>';
     h += '<td>' + bd(t.pa_outpatient_278) + '</td>';
@@ -98,45 +101,54 @@ function avTableFromAPI(data) {
   return h;
 }
 
-// Plan Directory
-var _plansCache = null;
+// ── Plan Directory ─────────────────────────────────────────────────────────
 
 function fd() {
-  var s = document.getElementById('ds').value.toLowerCase();
+  var s = document.getElementById('ds').value.toLowerCase().trim();
   var st = document.getElementById('df').value;
   var dr = document.getElementById('dr');
   var dd = document.getElementById('dd');
+
+  // Transaction filters
+  var f270  = document.getElementById('f270').checked;
+  var f278i = document.getElementById('f278i').checked;
+  var f278o = document.getElementById('f278o').checked;
+  var fRef  = document.getElementById('fRef').checked;
+  var f275  = document.getElementById('f275').checked;
 
   dd.textContent = 'Loading...';
   dr.innerHTML = '<div class="al al-i">Fetching plans...</div>';
 
   var params = [];
   if (st) params.push('state=' + encodeURIComponent(st));
-  if (s) params.push('search=' + encodeURIComponent(s));
+  if (s)  params.push('search=' + encodeURIComponent(s));
   var qs = params.length ? '?' + params.join('&') : '';
 
   fetch(API + '/plans' + qs)
     .then(function (r) { return r.json(); })
     .then(function (data) {
       var plans = data.plans || [];
-      dd.textContent = plans.length + ' plans';
+
+      // Client-side transaction filter
+      if (f270)  plans = plans.filter(function(p){ return p.has_270; });
+      if (f278i) plans = plans.filter(function(p){ return p.has_pa_in; });
+      if (f278o) plans = plans.filter(function(p){ return p.has_pa_out; });
+      if (fRef)  plans = plans.filter(function(p){ return p.has_ref; });
+      if (f275)  plans = plans.filter(function(p){ return p.has_275; });
+
+      dd.textContent = plans.length + ' plan' + (plans.length !== 1 ? 's' : '');
       var h = '';
       plans.forEach(function (p, i) {
         var id = 'ac' + i;
-        var hasPa = p.has_pa_in || p.has_pa_out;
+        var t = { has_270: p.has_270, has_pa_in: p.has_pa_in, has_pa_out: p.has_pa_out, has_ref: p.has_ref, has_275: p.has_275 };
         h += '<div class="pr">';
         h += '<div class="acc-toggle fl row" style="justify-content:space-between" onclick="ta(\'' + id + '\')">';
         h += '<div><div style="font-size:15px;font-weight:700">' + p.plan_name + '</div>';
         h += '<div style="font-size:13px;color:var(--s);margin-top:2px">' + p.state + ' • ' + p.prefix_count + ' prefixes</div></div>';
-        h += '<div class="fl row" style="gap:4px">';
-        h += (hasPa ? '<span class="ok">PA</span>' : '<span class="no">PA</span>');
-        h += (p.has_ref ? '<span class="ok">Ref</span>' : '<span class="no">Ref</span>');
-        h += (p.has_270 ? '<span class="ok">270</span>' : '<span class="no">270</span>');
-        h += (p.has_275 ? '<span class="at">275</span>' : '<span class="no">275</span>');
-        h += '</div></div>';
+        h += '<div class="fl row" style="gap:4px">' + txBadges(t) + '</div></div>';
         h += '<div class="acc-body" id="' + id + '">';
         var pids = p.availity_payer_ids || '';
-        if (!pids && !p.has_270 && !hasPa) {
+        if (!pids && !p.has_270 && !p.has_pa_in && !p.has_pa_out) {
           h += '<div class="al al-w" style="margin-top:8px">Not supported via Availity REST API. <a href="' + p.website_url + '" target="_blank">Payer portal ↗</a></div>';
         } else {
           h += '<table class="avtbl"><tr><th>Availity ID(s)</th><th>270</th><th>278 IP</th><th>278 OP</th><th>Ref</th><th>275</th></tr>';
@@ -146,7 +158,7 @@ function fd() {
         }
         h += '</div></div>';
       });
-      dr.innerHTML = h;
+      dr.innerHTML = h || '<div class="al al-w">No plans match the selected filters.</div>';
     })
     .catch(function () {
       dr.innerHTML = '<div class="al al-e">Network error loading plans.</div>';
@@ -156,13 +168,19 @@ function fd() {
 
 function ta(id) { document.getElementById(id).classList.toggle('open'); }
 
-// Prefix Search
+// ── Prefix Search — triggers only on full 3 chars ─────────────────────────
+
 function sp() {
   var input = document.getElementById('pi');
   input.value = input.value.toUpperCase().replace(/[^A-Z2-9]/g, '');
   var v = input.value;
   var el = document.getElementById('px'), st = document.getElementById('pst');
-  if (!v.length) { el.innerHTML = ''; st.textContent = ''; return; }
+
+  if (v.length < 3) {
+    el.innerHTML = '';
+    st.textContent = v.length > 0 ? 'Enter ' + (3 - v.length) + ' more character' + (3 - v.length > 1 ? 's' : '') : '';
+    return;
+  }
 
   st.textContent = 'Searching...';
 
@@ -171,30 +189,31 @@ function sp() {
     .then(function (data) {
       var results = data.prefixes || [];
       st.textContent = results.length + ' prefix' + (results.length !== 1 ? 'es' : '') + ' found' + (results.length === 200 ? ' (showing first 200)' : '');
-      var h = '<table class="ptbl"><tr><th>Prefix</th><th>BCBS Plan</th><th>State</th><th>Availity ID</th><th>270</th><th>PA</th><th>Ref</th><th>275</th></tr>';
+      if (!results.length) { el.innerHTML = '<div class="al al-w">No prefixes found starting with <strong>' + v + '</strong>.</div>'; return; }
+      var h = '<table class="ptbl"><tr><th>Prefix</th><th>BCBS Plan</th><th>State</th><th>Availity ID</th><th>270</th><th>278 IP</th><th>278 OP</th><th>Ref</th><th>275</th></tr>';
       results.forEach(function (x) {
         h += '<tr><td class="mono">' + x.alpha_prefix + '</td><td>' + x.plan_name + '</td><td>' + x.state + '</td>';
         h += '<td class="mono" style="font-size:12px">' + (x.availity_payer_ids || '—') + '</td>';
-        h += '<td>' + bds(x.has_270) + '</td><td>' + bds(x.has_pa_in || x.has_pa_out) + '</td>';
-        h += '<td>' + bds(x.has_ref) + '</td>';
-        h += '<td>' + (x.has_275 ? '<span class="at">✓</span>' : bds(false)) + '</td></tr>';
+        h += '<td>' + bds(x.has_270) + '</td><td>' + bds(x.has_pa_in) + '</td><td>' + bds(x.has_pa_out) + '</td>';
+        h += '<td>' + bds(x.has_ref) + '</td><td>' + (x.has_275 ? '<span class="at">✓</span>' : bds(false)) + '</td></tr>';
       });
       h += '</table>';
       el.innerHTML = h;
     })
-    .catch(function () {
-      st.textContent = 'Network error.';
-      el.innerHTML = '';
-    });
+    .catch(function () { st.textContent = 'Network error.'; el.innerHTML = ''; });
 }
 
-// Feedback modal
+// ── Feedback modal ─────────────────────────────────────────────────────────
+
 function openFeedback(prefix, planName) {
   document.getElementById('fbPrefix').value = prefix;
   document.getElementById('fbPlan').value = planName;
   document.getElementById('fbCorrect').value = '';
   document.getElementById('fbDesc').value = '';
   document.getElementById('fbResult').innerHTML = '';
+  var btn = document.getElementById('fbSubmitBtn');
+  btn.disabled = false;
+  btn.textContent = 'Send Feedback';
   document.getElementById('feedbackModal').classList.add('open');
   document.body.style.overflow = 'hidden';
 }
@@ -206,49 +225,44 @@ function closeFeedback() {
 
 function submitFeedback() {
   var prefix = document.getElementById('fbPrefix').value;
-  var plan = document.getElementById('fbPlan').value;
+  var plan   = document.getElementById('fbPlan').value;
   var correct = document.getElementById('fbCorrect').value.trim();
-  var desc = document.getElementById('fbDesc').value.trim();
-  var btn = document.getElementById('fbSubmitBtn');
-  var result = document.getElementById('fbResult');
+  var desc    = document.getElementById('fbDesc').value.trim();
+  var btn     = document.getElementById('fbSubmitBtn');
+  var result  = document.getElementById('fbResult');
 
   if (!desc && !correct) {
-    result.innerHTML = '<div class="vm vm-e">Please describe the issue or provide the correct plan name.</div>';
+    result.innerHTML = '<span style="color:var(--et);font-size:13px">Please describe the issue or provide the correct plan name.</span>';
     return;
   }
 
   btn.disabled = true;
-  btn.textContent = 'Submitting...';
+  btn.textContent = 'Sending...';
+  result.innerHTML = '';
 
   fetch(API + '/feedback', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      alpha_prefix: prefix,
-      reported_plan: plan,
-      correct_plan: correct,
-      issue_description: desc
-    })
+    body: JSON.stringify({ alpha_prefix: prefix, reported_plan: plan, correct_plan: correct, issue_description: desc })
   })
     .then(function (r) { return r.json(); })
     .then(function (data) {
       if (data.success) {
-        result.innerHTML = '<div class="vm vm-ok">✓ Feedback submitted. Thank you!</div>';
-        setTimeout(closeFeedback, 1500);
+        result.innerHTML = '<span style="color:var(--ok);font-size:13px;font-weight:700">✓ Feedback sent. Thank you!</span>';
+        btn.textContent = 'Sent';
+        setTimeout(closeFeedback, 2000);
       } else {
-        result.innerHTML = '<div class="vm vm-e">Submission failed. Please try again.</div>';
+        result.innerHTML = '<span style="color:var(--et);font-size:13px">Submission failed. Please try again.</span>';
         btn.disabled = false;
-        btn.textContent = 'Submit';
+        btn.textContent = 'Send Feedback';
       }
     })
     .catch(function () {
-      result.innerHTML = '<div class="vm vm-e">Network error. Please try again.</div>';
+      result.innerHTML = '<span style="color:var(--et);font-size:13px">Network error. Please try again.</span>';
       btn.disabled = false;
-      btn.textContent = 'Submit';
+      btn.textContent = 'Send Feedback';
     });
 }
-
-// Prefix modal (removed — data now server-side, no bulk prefix list exposed)
 
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') { closeFeedback(); closePfx(); }
@@ -258,9 +272,9 @@ function closePfx() {
   if (m) { m.classList.remove('open'); document.body.style.overflow = ''; }
 }
 
-// Populate state dropdown for Plan Directory
+// ── State dropdown ─────────────────────────────────────────────────────────
 (function () {
-  var states = ["AL","AR","AZ","CA","CO","CT","DC/MD/VA","DE","FL","GA","HI","IA","ID","IL","IN","INTL","KS","KY","LA","MA","MD","ME","MI","MN","MO","MS","MT","MULTI","NC","ND","NE","NH","NJ","NM","NV","NY","OH","OK","OR","PA","PR","RI","SC","SD","TN","TX","UT","VA","VT","WA","WI","WV","WY"];
+  var states = ["AL","AR","AZ","CA","CO","CT","DC/MD/VA","DE","FL","GA","HI","IA","ID","IL","IN","INTL","KS","KY","LA","MA","ME","MI","MN","MO","MS","MT","MULTI","NC","ND","NE","NH","NJ","NM","NV","NY","OH","OK","OR","PA","PR","RI","SC","SD","TN","TX","UT","VA","VT","WA","WI","WV","WY"];
   var sel = document.getElementById('df');
   states.forEach(function (s) {
     var o = document.createElement('option');
